@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const cors = require('cors')
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 require('dotenv').config()
 const app = express()
@@ -27,6 +27,8 @@ async function run() {
         await client.connect();
 
         const database = client.db('iFitDB');
+        const userCollection = database.createCollection('users')
+        const bookingInfoCollection=database.createCollection("bookingInfo")
 
         app.post('/jwtToken', async (req, res) => {
             const user = req.body;
@@ -53,6 +55,86 @@ async function run() {
                 next()
             })
         }
+
+        app.post('/addUserInfo', async (req, res) => {
+            const result = await (await userCollection).insertOne(req.body)
+            res.send(result)
+        })
+
+        app.get('/existUser', async (req, res) => {
+            const email = req.query.email;
+            const query = { email: email };
+            const result = await (await userCollection).findOne(query);
+            console.log(req.query.email)
+            res.send(result)
+        })
+
+        app.put(`/updateUserInfo`, async (req, res) => {
+            const email = req.query.email;
+            const query = { email: email };
+            const options = { upsert: true };
+            const userInfo = { $set: req.body };
+            const result = await (await userCollection).updateOne(query, userInfo, options);
+            res.send(result)
+        })
+
+        app.get('/trainer', async (req, res) => {
+            const query = { role: "trainer" };
+            const result = await (await userCollection).find(query).toArray();
+            res.send(result);
+        })
+        //find trainer
+        app.get('/findTrainer', async (req, res) => {
+            const email = req.query.email;
+            const query = { email: email };
+            const learner =await (await userCollection).findOne(query)
+            if (!learner || !learner.slot) {
+                return res.status(404).send({ message: "user not found" })
+            }
+            const learnerSlots = learner.slot.map(slot => parseInt(slot))
+            const result = await (await userCollection).find({
+                role: "trainer",
+                slot: {
+                    $elemMatch: {
+                        $in: learnerSlots
+                    }
+                }
+            }).toArray()
+            res.send(result)
+        })
+
+        app.post('/bookedTrainer', async(req, res)=>{
+            const bookingInfo=req.body;
+            const result=await (await bookingInfoCollection).insertOne(bookingInfo);
+            res.send(result)
+        })
+
+        app.get('/myBookedTrainer', async(req, res)=>{
+            const email=req.query.email;
+            const query={bookedBy: email};
+            const result=await (await bookingInfoCollection).find(query).toArray();
+            res.send(result);
+        })
+
+        app.delete(`/deleteBookedItem/:id`, async (req, res)=>{
+            const id=req.params.id;
+            const query={_id: new ObjectId(id)};
+            const result=await (await bookingInfoCollection).deleteOne(query);
+            res.send(result);
+        })
+
+        app.get('/getMyLearner', async(req,res)=>{
+            const email=req.query.email;
+            console.log(email, "email")
+            const query={email: email}
+            const trainer=await (await userCollection).findOne(query);
+            if (!trainer) {
+                return res.status(404).send({message: 'user not found'})
+            }
+            console.log(trainer)
+            const bookingData=await (await bookingInfoCollection).find({trainerId: trainer._id.toString()}).toArray()
+            res.send(bookingData)
+        })
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
