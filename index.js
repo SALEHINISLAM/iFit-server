@@ -6,6 +6,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const app = express()
 const port = process.env.PORT || 3000
+const stripe=require('stripe')(process.env.STRIPE_KEY)
 
 app.use(cors())
 app.use(express.json())
@@ -29,6 +30,7 @@ async function run() {
         const database = client.db('iFitDB');
         const userCollection = database.createCollection('users')
         const bookingInfoCollection=database.createCollection("bookingInfo")
+        const paymentCollection=database.createCollection("payments")
 
         app.post('/jwtToken', async (req, res) => {
             const user = req.body;
@@ -134,6 +136,34 @@ async function run() {
             console.log(trainer)
             const bookingData=await (await bookingInfoCollection).find({trainerId: trainer._id.toString()}).toArray()
             res.send(bookingData)
+        })
+
+        app.post('/create-payment-intent', async(req, res)=>{
+            const {price}=req.body;
+            const amount=parseInt(price)*100;
+            const paymentIntent=await stripe.paymentIntents.create({
+                amount:amount,
+                currency:'usd',
+                payment_method_types:[
+                    "card"
+                ]
+            })
+            res.send({
+                clientSecret:paymentIntent.client_secret
+            })
+        })
+        
+        app.post('/payments', async(req,res)=>{
+            const payment=req.body;
+            const result=await (await paymentCollection).insertOne(payment);
+            res.send(result)
+        })
+
+        app.patch(`/payment/:id`, async(req, res)=>{
+            const id=req.params.id;
+            const query= {_id: new ObjectId(id)};
+            const result=await (await bookingInfoCollection).updateOne(query,{$set:{payment: "paid"}});
+            res.send(result)
         })
 
         // Send a ping to confirm a successful connection
